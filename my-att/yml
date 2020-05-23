@@ -1,0 +1,155 @@
+---
+- name: Playbook to automate tomcat administrative tasks
+  hosts:
+    - tomcat
+  vars:
+    __tomcat_username: tomcat
+    __tomcat_certs_path:  /var/local/certs
+    __tomcat_auth_path: /etc/opt/rh/jws5/tomcat
+    __tomcat_auth_file: auth-infos
+    __tomcat_cert_count_required: 5
+    __tomcat_yum_install_name: install-prod
+    __tomcat_yum_install_state: latest
+    __tomcat_test_url: https://google.com
+    __tomcat_test_string: google
+    __tomcat_test_return_code: 200
+    __tomcat_test_retries: 60
+    __tomcat_test_delays: 5
+  tasks:
+    - block:
+      - name: Verify user exists
+        getent:
+          database: passwd
+          key: "{{ __tomcat_username }}"
+        register: verify_tomcat_user
+
+      - debug: var=verify_tomcat_user
+
+      - name: register fact with state of __tomcat_username
+        set_fact:
+          tomcat_user_exists: 'false'
+        when: verify_tomcat_user.failed == true
+
+      - name: register fact with state of __tomcat_username
+        set_fact:
+          tomcat_user_exists: 'true'
+        when: verify_tomcat_user.failed == false
+
+      - debug: var=tomcat_user_exists
+
+      - name: Notify state of __tomcat_username (user absent)
+        debug:
+          msg: "user {{ __tomcat_username }} absent on host '{{ ansible_hostname }}'"
+        when: tomcat_user_exists == false
+
+      - name: Notify state of __tomcat_username (user present)
+        debug:
+          msg: "user {{ __tomcat_username }} present on host '{{ ansible_hostname }}'"
+        when: tomcat_user_exists == true
+
+      ignore_errors: true
+      tags:
+        - tomcat_user
+
+    - block:
+        - name: Verify __tomcat_certs_path exists
+          stat:
+            path: "{{ __tomcat_certs_path }}"
+          register: verify_tomcat_certs_path
+
+        - debug: var=verify_tomcat_certs_path
+
+        - name: register fact with state of __tomcat_certs_path
+          set_fact:
+            tomcat_certs_path_exists: 'true'
+          when: verify_tomcat_certs_path.stat.exists == true
+
+        - name: register fact with state of __tomcat_certs_path
+          set_fact:
+            tomcat_certs_path_exists: 'false'
+          when: verify_tomcat_certs_path.stat.exists == false
+
+        - name: Notify state of __tomcat_certs_path (path absent)
+          debug:
+            msg: "path {{ __tomcat_certs_path }} absent on host '{{ ansible_hostname }}'"
+          when: tomcat_certs_path_exists == false
+
+        - name: Notify state of __tomcat_certs_path (path present)
+          debug:
+            msg: "path {{ __tomcat_certs_path }} present on host '{{ ansible_hostname }}'"
+          when: tomcat_certs_path_exists == true
+
+        - name: Ensure __tomcat_certs_path contains files
+          find:
+            path: "{{ __tomcat_certs_path }}"
+          register: tomcat_certs_path_find
+
+        - debug: var=tomcat_certs_path_find
+
+        - name: register fact with state of __tomcat_certs_path
+          set_fact:
+            tomcat_certs_count: "{{ tomcat_certs_path_find.matched }}"
+
+        - debug: var=tomcat_certs_count
+
+      ignore_errors: true
+      tags:
+        - tomcat_certs_path
+
+    - block:
+        - name: Verify __tomcat_auth_file exists
+          stat:
+            path: "{{ __tomcat_auth_path }}/{{ __tomcat_auth_file }}"
+          register: verify_tomcat_auth_file
+
+        - debug: var=verify_tomcat_auth_file
+
+        - name: register fact with state of __tomcat_auth_file
+          set_fact:
+            tomcat_auth_file_exists: 'true'
+          when: verify_tomcat_auth_file.stat.exists == true
+
+        - name: register fact with state of __tomcat_auth_file
+          set_fact:
+            tomcat_auth_file_exists: 'false'
+          when: verify_tomcat_auth_file.stat.exists == false
+
+        - name: Notify state of __tomcat_auth_file (path absent)
+          debug:
+            msg: "path {{ __tomcat_auth_file }} absent on host '{{ ansible_hostname }}'"
+          when: tomcat_auth_file_exists == false
+
+        - name: Notify state of __tomcat_auth_file (path present)
+          debug:
+            msg: "path {{ __tomcat_auth_file }} present on host '{{ ansible_hostname }}'"
+          when: tomcat_auth_file_exists == true
+      ignore_errors: true
+      tags:
+        - tomcat_auth_file
+
+    - name: Run yum install command when all prerequisites are met
+      yum:
+        name: "{{ __tomcat_yum_install_name }}"
+        state: "{{ __tomcat_yum_install_state }}"
+      when: |
+        tomcat_user_exists == true and
+        tomcat_certs_path_exists == true and
+        tomcat_auth_file_exists == true and
+        tomcat_certs_count | int >= __tomcat_cert_count_required
+      register: run_yum_install
+      become: true
+
+    - debug: var=run_yum_install
+
+    - name: Test and verify URL
+      uri:
+        url: "{{ __tomcat_test_url }}"
+        return_content: yes
+      register: __test_tomcat_url
+      until: __test_tomcat_url.status == __tomcat_test_return_code
+      retries: "{{ __tomcat_test_retries }}"
+      delay: "{{ __tomcat_test_delays }}"
+      failed_when: "__tomcat_test_string not in __test_tomcat_url.content"
+
+    - debug: var=__test_tomcat_url
+© 2020 GitHub, Inc.
